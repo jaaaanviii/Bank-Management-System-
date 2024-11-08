@@ -1,0 +1,2 @@
+Install SQLite: Ensure SQLite is installed on your system.
+Compile and Run: This C code uses SQLite's C API for database operations, so you’ll need to compile with -lsqlite3.
