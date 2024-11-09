@@ -1,0 +1,223 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sqlite3.h>
+
+// Database connection
+sqlite3 *db;
+char *errMsg = 0;
+int rc;
+
+// Function to execute SQL commands
+void executeSQL(char *sql) {
+    rc = sqlite3_exec(db, sql, 0, 0, &errMsg);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "SQL error: %s\n", errMsg);
+        sqlite3_free(errMsg);
+    }
+}
+
+// Function to initialize the database and tables
+void initializeDB() {
+    char *createCustomersTable = "CREATE TABLE IF NOT EXISTS Customers ("
+                                 "ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+                                 "Name TEXT NOT NULL, "
+                                 "Balance REAL DEFAULT 0.0);";
+
+    char *createTransactionsTable = "CREATE TABLE IF NOT EXISTS Transactions ("
+                                    "ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+                                    "CustomerID INTEGER, "
+                                    "Type TEXT, "
+                                    "Amount REAL, "
+                                    "FOREIGN KEY (CustomerID) REFERENCES Customers(ID));";
+
+    char *createLoansTable = "CREATE TABLE IF NOT EXISTS Loans ("
+                             "ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+                             "CustomerID INTEGER, "
+                             "LoanAmount REAL, "
+                             "RemainingBalance REAL, "
+                             "FOREIGN KEY (CustomerID) REFERENCES Customers(ID));";
+
+    executeSQL(createCustomersTable);
+    executeSQL(createTransactionsTable);
+    executeSQL(createLoansTable);
+}
+
+// Function to create a new customer account
+void createCustomer() {
+    char name[50];
+    printf("Enter Customer Name: ");
+    scanf("%s", name);
+
+    char sql[200];
+    sprintf(sql, "INSERT INTO Customers (Name) VALUES ('%s');", name);
+    executeSQL(sql);
+
+    printf("Customer account created successfully.\n");
+}
+
+// Function to deposit money
+void depositMoney() {
+    int customerID;
+    double amount;
+    printf("Enter Customer ID: ");
+    scanf("%d", &customerID);
+    printf("Enter Deposit Amount: ");
+    scanf("%lf", &amount);
+
+    char sql[200];
+    sprintf(sql, "UPDATE Customers SET Balance = Balance + %f WHERE ID = %d;", amount, customerID);
+    executeSQL(sql);
+
+    sprintf(sql, "INSERT INTO Transactions (CustomerID, Type, Amount) VALUES (%d, 'Deposit', %f);", customerID, amount);
+    executeSQL(sql);
+
+    printf("Deposit successful.\n");
+}
+
+// Function to withdraw money
+void withdrawMoney() {
+    int customerID;
+    double amount;
+    printf("Enter Customer ID: ");
+    scanf("%d", &customerID);
+    printf("Enter Withdrawal Amount: ");
+    scanf("%lf", &amount);
+
+    // Check balance before withdrawal
+    char sql[200];
+    sprintf(sql, "SELECT Balance FROM Customers WHERE ID = %d;", customerID);
+    sqlite3_stmt *stmt;
+    rc = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    if (rc == SQLITE_OK && sqlite3_step(stmt) == SQLITE_ROW) {
+        double balance = sqlite3_column_double(stmt, 0);
+        if (balance < amount) {
+            printf("Insufficient balance.\n");
+            sqlite3_finalize(stmt);
+            return;
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    sprintf(sql, "UPDATE Customers SET Balance = Balance - %f WHERE ID = %d;", amount, customerID);
+    executeSQL(sql);
+
+    sprintf(sql, "INSERT INTO Transactions (CustomerID, Type, Amount) VALUES (%d, 'Withdrawal', %f);", customerID, amount);
+    executeSQL(sql);
+
+    printf("Withdrawal successful.\n");
+}
+
+// Function to check balance
+void checkBalance() {
+    int customerID;
+    printf("Enter Customer ID: ");
+    scanf("%d", &customerID);
+
+    char sql[200];
+    sprintf(sql, "SELECT Balance FROM Customers WHERE ID = %d;", customerID);
+
+    sqlite3_stmt *stmt;
+    rc = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    if (rc == SQLITE_OK && sqlite3_step(stmt) == SQLITE_ROW) {
+        printf("Current Balance: %.2f\n", sqlite3_column_double(stmt, 0));
+    } else {
+        printf("Customer not found.\n");
+    }
+    sqlite3_finalize(stmt);
+}
+
+// Function to take out a loan
+void takeLoan() {
+    int customerID;
+    double loanAmount;
+    printf("Enter Customer ID: ");
+    scanf("%d", &customerID);
+    printf("Enter Loan Amount: ");
+    scanf("%lf", &loanAmount);
+
+    char sql[200];
+    sprintf(sql, "INSERT INTO Loans (CustomerID, LoanAmount, RemainingBalance) VALUES (%d, %f, %f);", customerID, loanAmount, loanAmount);
+    executeSQL(sql);
+
+    printf("Loan granted successfully.\n");
+}
+
+// Function to view loan details
+void viewLoans() {
+    int customerID;
+    printf("Enter Customer ID: ");
+    scanf("%d", &customerID);
+
+    char sql[200];
+    sprintf(sql, "SELECT LoanAmount, RemainingBalance FROM Loans WHERE CustomerID = %d;", customerID);
+
+    sqlite3_stmt *stmt;
+    rc = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    if (rc == SQLITE_OK) {
+        printf("Loan Amount | Remaining Balance\n");
+        printf("-----------------------------\n");
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            printf("%.2f         | %.2f\n", sqlite3_column_double(stmt, 0), sqlite3_column_double(stmt, 1));
+        }
+    } else {
+        printf("No loans found for the customer.\n");
+    }
+    sqlite3_finalize(stmt);
+}
+
+// Main function with menu
+int main() {
+    rc = sqlite3_open("bank.db", &db);
+    if (rc) {
+        fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+        return 1;
+    } else {
+        printf("Opened database successfully.\n");
+    }
+
+    initializeDB();
+
+    int choice;
+    do {
+        printf("\n--- Bank Management System ---\n");
+        printf("1. Create Customer Account\n");
+        printf("2. Deposit Money\n");
+        printf("3. Withdraw Money\n");
+        printf("4. Check Balance\n");
+        printf("5. Take Loan\n");
+        printf("6. View Loan Details\n");
+        printf("0. Exit\n");
+        printf("Enter your choice: ");
+        scanf("%d", &choice);
+
+        switch (choice) {
+            case 1:
+                createCustomer();
+                break;
+            case 2:
+                depositMoney();
+                break;
+            case 3:
+                withdrawMoney();
+                break;
+            case 4:
+                checkBalance();
+                break;
+            case 5:
+                takeLoan();
+                break;
+            case 6:
+                viewLoans();
+                break;
+            case 0:
+                printf("Exiting the system.\n");
+                break;
+            default:
+                printf("Invalid choice. Please try again.\n");
+        }
+    } while (choice != 0);
+
+    sqlite3_close(db);
+    return 0;
+}
